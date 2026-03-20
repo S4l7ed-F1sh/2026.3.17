@@ -1,28 +1,17 @@
 import os
-import sys
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
+from pj_root import PROJECT_ROOT
+from src.dataloaders.dataset00 import MyDataset
+from src.utils.ds_check import check_ds
+from torch.utils.data import random_split, DataLoader
+from Unet_model import UNet
+import torch
+
+CURRENT_DIR = os.getcwd()
 RES_DIR = os.path.join(PROJECT_ROOT, 'resources')
 
-if __name__ == '__main__':
-    if os.path.join(PROJECT_ROOT, 'src') not in sys.path:
-        sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
-
-    if os.path.join(PROJECT_ROOT, 'src', 'utils') not in sys.path:
-        sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src', 'utils'))
-    if os.path.join(PROJECT_ROOT, 'src', 'dataloaders') not in sys.path:
-        sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src', 'dataloaders'))
-
-    import dataset00 as dataset00
-    from ds_check import check_ds
-    from md_check import check_md
-
-    model_path = check_md(
-        md_name="unet_camvid_rgb",
-        kaggle_path="awsaf49/unet-semantic-segmentation/pytorch"
-    )
-    print("模型路径:", model_path)
+def main():
+    model = UNet(num_classes=5)
 
     dataset_path = check_ds(
         ds_name="dataset00",
@@ -30,4 +19,27 @@ if __name__ == '__main__':
     )
     print("数据集路径:", dataset_path)
 
+    dataset = MyDataset("dataset/dataset00/images", "dataset/dataset00/labels")
 
+    # train_set, test_set = random_split(dataset, [int(0.8 * len(dataset)), len(dataset) - int(0.8 * len(dataset))])
+    # train_loader = DataLoader(dataset=train_set, batch_size=4, shuffle=True)
+    # test_loader = DataLoader(dataset=test_set, batch_size=4, shuffle=False)
+
+    print(f"数据集总样本数: {len(dataset)}")
+    # print(f"训练集样本数: {len(train_set)}")
+    # print(f"测试集样本数: {len(test_set)}")
+
+    # print(train_loader[0].shape())
+    # print(test_loader[0].shape())
+
+    img1, lbl1, _ = dataset.__getitem__(0)
+
+    print("图像1的形状:", img1.shape)
+    print("标签1的形状:", lbl1.shape)
+
+    img1_tensor = torch.from_numpy(img1).permute(2, 0, 1).unsqueeze(0).float()  # 转换为张量并添加批次维度
+    ans1 = model(img1_tensor)  # 添加批次维度
+    print("模型输出的形状:", ans1.shape)
+
+if __name__ == '__main__':
+    main()

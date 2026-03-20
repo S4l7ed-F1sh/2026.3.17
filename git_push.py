@@ -1,6 +1,8 @@
 import subprocess
 
 try:
+    res = subprocess.check_output(["git", "add", "--all"], stderr=subprocess.STDOUT, text=True)
+    print(res)
     res = subprocess.check_output(["git", "commit", "-m", "\"default commit\""], stderr=subprocess.STDOUT, text=True)
     print(res)
     res = subprocess.check_output(["git", "push"], stderr=subprocess.STDOUT, text=True)

@@ -2,19 +2,22 @@ import os
 from torch.utils.data import Dataset
 import numpy as np
 from PIL import Image
-from torchvision import transforms
+from pj_root import PROJECT_ROOT
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # .../src/utils
-PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))  # .../项目根
+CURRENT_DIR = os.getcwd()
 RES_DIR = os.path.join(PROJECT_ROOT, 'resources')
 
 class MyDataset(Dataset):
     def __init__(self, image_dir, label_dir, transform=None):
+        image_dir = os.path.join(RES_DIR, image_dir)
+        label_dir = os.path.join(RES_DIR, label_dir)
+
         if not os.path.exists(image_dir) or not os.path.exists(label_dir):
             raise FileNotFoundError("数据集图像目录或标签目录不存在，请检查路径是否正确！")
 
         self.image_dir = image_dir
         self.label_dir = label_dir
+        self.transform = transform
 
         image_files_list = os.listdir(self.image_dir)
         label_files_list = os.listdir(self.label_dir)
@@ -81,9 +84,9 @@ class MyDataset(Dataset):
         print(f"label 图像中值域: {lbl_u}")
         print('=' * 70)
 
-if __name__ == '__main__':
-    image_dir = os.path.join(RES_DIR, "dataset", "dataset00", "images")
-    label_dir = os.path.join(RES_DIR, "dataset", "dataset00", "labels")
+def main():
+    image_dir = os.path.join("dataset", "dataset00", "images")
+    label_dir = os.path.join("dataset", "dataset00", "labels")
 
     dataset = MyDataset(image_dir, label_dir)
 
@@ -92,3 +95,6 @@ if __name__ == '__main__':
     dataset.check_sample()
     dataset.check_sample()
     dataset.check_sample()
+
+if __name__ == '__main__':
+    main()

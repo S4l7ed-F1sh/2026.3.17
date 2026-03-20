@@ -1,14 +1,21 @@
 import os
 import kagglehub # 补充导入：数据集下载需使用 kagglehub.dataset_download
 import huggingface_hub
+from pj_root import PROJECT_ROOT
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # .../src/utils
-PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))  # .../项目根
 RES_DIR = os.path.join(PROJECT_ROOT, 'resources')
+SRC_DIR = os.path.join(PROJECT_ROOT, 'src')
+
+# print(f"当前脚本路径: {CURRENT_DIR}")
+# print(f"项目根路径: {PROJECT_ROOT}")
+# print(f"资源目录路径: {RES_DIR}")
 
 if not os.path.exists(RES_DIR):
     print("警告：检测到 resources 文件夹不存在，请检查路径是否正确！")
     os.makedirs(RES_DIR)
+if not os.path.exists(SRC_DIR):
+    print("警告：检测到 resources 文件夹不存在，请检查路径是否正确！")
+    os.makedirs(SRC_DIR)
 
 def check_ds(ds_name, kaggle_path = None, hg_path = None):
     '''
@@ -30,21 +37,21 @@ def check_ds(ds_name, kaggle_path = None, hg_path = None):
         os.makedirs(target_path)  # 确保 dataset 目录存在
 
     if os.path.exists(target_dir):
-        print(f"{ds_name} 数据集已存在，无需下载。")
+        print(f"{ds_name} 数据集已存在，路径: {target_dir}")
     else:
         print(f"{ds_name} 数据集不存在，正在下载...")
-        if kaggle_path == "" and hg_path == "":
+        if kaggle_path is None and hg_path is None:
             print("警告：未提供 Kaggle 或 Hugging Face 数据集路径，无法下载数据集。请检查参数是否正确！")
             raise ValueError("Kaggle 数据集路径和 Hugging Face 数据集路径不能同时为空字符串。")
 
-        if kaggle_path != "":
+        if kaggle_path is not None:
             try:
                 kagglehub.dataset_download(handle=kaggle_path, output_dir=target_dir)
                 print(f"✓ 数据集下载完成！保存至: {target_dir}")
             except Exception as e:
                 print(f"✗ Kaggle 数据集下载失败: {str(e)}")
                 raise  # 保留异常以便上层处理
-        elif hg_path != "":
+        elif hg_path is not None:
             try:
                 huggingface_hub.hf_hub_download(repo_id=hg_path, repo_type='dataset', local_dir=target_dir)
                 print(f"✓ 数据集下载完成！保存至: {target_dir}")
