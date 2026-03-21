@@ -29,9 +29,6 @@ def main():
     # print(f"训练集样本数: {len(train_set)}")
     # print(f"测试集样本数: {len(test_set)}")
 
-    # print(train_loader[0].shape())
-    # print(test_loader[0].shape())
-
     img1, lbl1, _ = dataset.__getitem__(0)
 
     print("图像1的形状:", img1.shape)

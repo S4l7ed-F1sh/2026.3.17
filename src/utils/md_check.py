@@ -13,7 +13,7 @@ if not os.path.exists(RES_DIR):
     print("警告：检测到 resources 文件夹不存在，请检查路径是否正确！")
     os.makedirs(RES_DIR)
 if not os.path.exists(SRC_DIR):
-    print("警告：检测到 resources 文件夹不存在，请检查路径是否正确！")
+    print("警告：检测到 src 文件夹不存在，请检查路径是否正确！")
     os.makedirs(SRC_DIR)
 
 def check_md(md_name, kaggle_path = None, hg_path = None):
