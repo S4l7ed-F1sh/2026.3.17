@@ -77,7 +77,8 @@ class UNet(nn.Module):
         seg_map = torch.argmax(F.softmax(logits, dim=1), dim=1, keepdim=True)
         # seg_map.shape -> [B, 1, H, W], dtype=torch.int64
 
-        return seg_map
+        return logits
+        # return seg_map
 
 
 # --- U-Net 的基础组件 ---

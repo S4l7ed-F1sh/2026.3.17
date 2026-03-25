@@ -1,185 +1,341 @@
+# logger.py
+
 import os
+import json
 import time
 from datetime import datetime
-import torch
+from typing import Dict, Any, List, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 from pj_root import PROJECT_ROOT
+import torch
 
-class SegmentationLogger:
+
+class SemanticSegmentationLogger:
     """
-    为语义分割模型训练设计的日志记录器。
-
-    该类负责创建日志目录、记录训练指标、保存采样图像等。
+    A logger for semantic segmentation model training.
+    It manages directories, logs text data to specific files,
+    saves images, and generates plots for metrics and samples.
     """
 
     def __init__(self, title: str):
         """
-        初始化日志记录器。
+        Initializes the logger.
 
         Args:
-            title (str): 日志的标题，用于创建项目目录。
+            title (str): The title for the experiment/run.
         """
-        # 定义根目录路径
-        self.base_path = os.path.join(PROJECT_ROOT, "resource", "Logger")
-        os.makedirs(self.base_path, exist_ok=True)
-
-        # 创建时间戳目录
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir = os.path.join(self.base_path, f"{title}_{timestamp}")
-        os.makedirs(self.run_dir, exist_ok=True)
-
-        # 保存标题和当前阶段信息
         self.title = title
-        self.current_phase = -1
-        self.phase_log_file = None
-        self.metrics_log_file = None
-        self.phase_sample_dir = None
+        self.run_start_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    def _init_phase(self, phase_num: int):
-        """初始化一个新的训练阶段，创建相应的日志文件和采样目录。"""
-        if self.current_phase >= 0:
-            # 如果不是第一个阶段，关闭之前的日志文件
-            if self.phase_log_file:
-                self.phase_log_file.close()
-            if self.metrics_log_file:
-                self.metrics_log_file.close()
+        # Create directory structure: resource/Logger/<run_start_time>/<title>
+        self.log_root_dir = os.path.join(PROJECT_ROOT, "resources", "Logger", self.run_start_time, title)
+        os.makedirs(self.log_root_dir, exist_ok=True)
 
-        self.current_phase = phase_num
+        # Initialize phase-specific attributes
+        self.current_phase = 0
+        self.phase_data = {}
+        self._init_new_phase()
 
-        # 创建新阶段的日志文件
-        log_filename = os.path.join(self.run_dir, f"phase_{self.current_phase}_log.txt")
-        metrics_filename = os.path.join(self.run_dir, f"phase_{self.current_phase}_metrics.csv")
+    def _init_new_phase(self):
+        """Initializes data structures for a new training phase."""
+        self.current_phase += 1
+        self.phase_data[self.current_phase] = {
+            'model_name': None,
+            'dataset_name': None,
+            'train_size': None,
+            'test_size': None,
+            'optimizer_method': None,
+            'epochs_data': []  # List of dictionaries containing epoch metrics
+        }
 
-        self.phase_log_file = open(log_filename, 'w', encoding='utf-8')
-        self.metrics_log_file = open(metrics_filename, 'w', encoding='utf-8')
+        # Create a new directory for the current phase's samples
+        self.current_phase_sample_dir = os.path.join(self.log_root_dir, f"phase_{self.current_phase}_samples")
+        os.makedirs(self.current_phase_sample_dir, exist_ok=True)
 
-        # 写入CSV头部
-        self.metrics_log_file.write("epoch,train_loss,val_loss,train_time,val_time,learning_rate,miou\n")
-
-        # 创建新阶段的采样目录
-        self.phase_sample_dir = os.path.join(self.run_dir, f"phase_{self.current_phase}_samples")
-        os.makedirs(self.phase_sample_dir, exist_ok=True)
-
-        print(
-            f"[Logger] Initialized Phase {self.current_phase}. Log file: {log_filename}, Sample dir: {self.phase_sample_dir}")
-
-    def log_initial_info(self, model_name: str, dataset_name: str, train_size: int, val_size: int,
-                         optimizer_method: str):
+    def log_initialization(
+            self,
+            model_name: str,
+            dataset_name: str,
+            train_size: int,
+            test_size: int,
+            optimizer_method: str,
+    ):
         """
-        记录训练开始前的初始信息。
+        Logs initial information at the beginning of a new phase.
+        This should be called once per phase, before any epoch logging.
 
         Args:
-            model_name (str): 模型名称。
-            dataset_name (str): 数据集名称。
-            train_size (int): 训练集大小。
-            val_size (int): 验证/测试集大小。
-            optimizer_method (str): 优化方法。
-        """
-        self._init_phase(0)  # 开始第一个阶段
-
-        initial_info = (
-            f"Training initialized at: {datetime.now()}\n"
-            f"Model: {model_name}\n"
-            f"Dataset: {dataset_name}\n"
-            f"Train Set Size: {train_size}\n"
-            f"Val Set Size: {val_size}\n"
-            f"Optimizer: {optimizer_method}\n"
-            f"Log Directory: {self.run_dir}\n"
-            f"{'-' * 50}\n"
-        )
-        self.phase_log_file.write(initial_info)
-        self.phase_log_file.flush()
-        print(f"[Logger] Initial info for Phase {self.current_phase} logged.")
-
-    def log_epoch_metrics(self, epoch: int, train_loss: float, val_loss: float,
-                          train_time: float, val_time: float, learning_rate: float, miou: float):
-        """
-        记录一个epoch结束后的各项指标。
-
-        Args:
-            epoch (int): 当前轮数编号。
-            train_loss (float): 训练集Loss。
-            val_loss (float): 测试集Loss。
-            train_time (float): 训练集花费时间。
-            val_time (float): 测试集花费时间。
-            learning_rate (float): 当前学习率。
-            miou (float): 平均交并比(mIoU)。
+            model_name (str): Name of the model being trained.
+            dataset_name (str): Name of the dataset used.
+            train_size (int): Number of samples in the training set.
+            test_size (int): Number of samples in the test set.
+            optimizer_method (str): Optimization method used (e.g., Adam, SGD).
         """
         if self.current_phase < 0:
-            raise RuntimeError("Logging metrics before initialization. Call log_initial_info first.")
+            raise RuntimeError("A new phase must be initialized before logging initialization data.")
 
-        metric_line = f"{epoch},{train_loss:.6f},{val_loss:.6f},{train_time:.4f},{val_time:.4f},{learning_rate},{miou:.6f}\n"
-        self.metrics_log_file.write(metric_line)
-        self.metrics_log_file.flush()
+        phase_info = self.phase_data[self.current_phase]
+        phase_info['model_name'] = model_name
+        phase_info['dataset_name'] = dataset_name
+        phase_info['train_size'] = train_size
+        phase_info['test_size'] = test_size
+        phase_info['optimizer_method'] = optimizer_method
 
-    def finalize_current_phase_and_start_new(self):
-        """结束当前阶段，并为下一阶段做准备。"""
-        print(f"[Logger] Finalizing Phase {self.current_phase}...")
-        if self.phase_log_file:
-            self.phase_log_file.write(f"\nPhase {self.current_phase} completed at: {datetime.now()}\n")
-            self.phase_log_file.flush()
+        # Write initialization info to a dedicated file for this phase
+        init_log_path = os.path.join(self.log_root_dir, f"phase_{self.current_phase}_initialization.txt")
+        with open(init_log_path, 'w', encoding='utf-8') as f:
+            f.write(f"Model Name: {model_name}\n")
+            f.write(f"Dataset Name: {dataset_name}\n")
+            f.write(f"Train Set Size: {train_size}\n")
+            f.write(f"Test Set Size: {test_size}\n")
+            f.write(f"Optimizer Method: {optimizer_method}\n")
+            f.write(f"Phase Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("-" * 30 + "\n")
 
-        new_phase_num = self.current_phase + 1
-        self._init_phase(new_phase_num)
-
-    def save_samples(self, images, targets, predictions, sample_count: int, class_colors: list):
+    def log_epoch(
+            self,
+            epoch_num: int,
+            train_loss: float,
+            val_loss: float,
+            train_time: float,
+            val_time: float,
+            learning_rate: float,
+            train_miou: float,
+            val_miou: float,
+    ):
         """
-        保存采样的原始图像、目标标签和预测结果。
+        Logs metrics for a completed epoch.
 
         Args:
-            images (torch.Tensor): 原始输入图像张量, shape: (B, C, H, W)，值域 [0, 1]。
-            targets (torch.Tensor): 真实标签, shape: (B, H, W)，值为类别ID。
-            predictions (torch.Tensor): 模型预测, shape: (B, H, W)，值为类别ID。
-            sample_count (int): 要保存的样本数量。
-            class_colors (list): 一个包含 (R, G, B) 元组的列表，代表每个类别的颜色。
+            epoch_num (int): The number of the epoch that just finished.
+            train_loss (float): Average loss on the training set for this epoch.
+            val_loss (float): Average loss on the validation/test set for this epoch.
+            train_time (float): Time spent on the training pass for this epoch (in seconds).
+            val_time (float): Time spent on the validation/test pass for this epoch (in seconds).
+            learning_rate (float): The learning rate value at the end of this epoch.
+            train_miou (float): Mean Intersection over Union (mIoU) on the training set.
+            val_miou (float): Mean Intersection over Union (mIoU) on the validation/test set.
         """
-        if not self.phase_sample_dir:
-            raise RuntimeError(
-                "Cannot save samples. No active phase directory. Call log_initial_info or finalize_current_phase_and_start_new first.")
+        epoch_data = {
+            "epoch": epoch_num,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "train_time": train_time,
+            "val_time": val_time,
+            "learning_rate": learning_rate,
+            "train_miou": train_miou,
+            "val_miou": val_miou,
+        }
+        self.phase_data[self.current_phase]['epochs_data'].append(epoch_data)
 
-        # 将张量转换为numpy数组以便处理
-        if isinstance(images, torch.Tensor):
-            images = images.cpu().numpy()
-        if isinstance(targets, torch.Tensor):
-            targets = targets.cpu().numpy()
-        if isinstance(predictions, torch.Tensor):
-            predictions = predictions.cpu().numpy()
+        # Append epoch data to the phase-specific metrics file
+        metrics_log_path = os.path.join(self.log_root_dir, f"phase_{self.current_phase}_metrics.txt")
+        with open(metrics_log_path, 'a', encoding='utf-8') as f:
+            f.write(
+                f"{epoch_num},{train_loss:.6f},{val_loss:.6f},"
+                f"{train_time:.4f},{val_time:.4f},{learning_rate:.8f},"
+                f"{train_miou:.4f},{val_miou:.4f}\n"
+            )
 
-        # 反归一化图像 (假设输入是归一化的 [0, 1])
-        images = np.clip(images * 255, 0, 255).astype(np.uint8)
-
-        for i in range(min(sample_count, len(images))):
-            img_tensor = images[i]
-            target_mask = targets[i]
-            pred_mask = predictions[i]
-
-            # --- 保存原始图像 ---
-            orig_img = Image.fromarray(img_tensor.transpose(1, 2, 0))  # CHW -> HWC
-            orig_img.save(os.path.join(self.phase_sample_dir, f"sample_{i}_original.png"))
-
-            # --- 保存目标标签图 (使用调色盘) ---
-            target_colored = self._apply_color_map(target_mask, class_colors)
-            target_colored.save(os.path.join(self.phase_sample_dir, f"sample_{i}_target.png"))
-
-            # --- 保存预测结果图 (使用调色盘) ---
-            pred_colored = self._apply_color_map(pred_mask, class_colors)
-            pred_colored.save(os.path.join(self.phase_sample_dir, f"sample_{i}_prediction.png"))
-
-        print(f"[Logger] Saved {min(sample_count, len(images))} sample(s) to {self.phase_sample_dir}")
-
-    @staticmethod
-    def _apply_color_map(mask: np.ndarray, colors: list) -> Image.Image:
+    def save_samples(self, outputs_and_labels: List[Tuple[np.ndarray, np.ndarray]],
+                     class_colors: List[Tuple[int, int, int]],
+                     sample_prefix: Optional[str] = "0"):
         """
-        为单通道的类别ID掩码应用调色盘，生成彩色图像。
+        Saves a sample of images and their predicted/ground truth masks.
+
+        Args:
+            outputs_and_labels (List[Tuple[np.ndarray, np.ndarray]]): A list of tuples.
+                Each tuple contains an image (H, W, C) and its corresponding mask (H, W).
+            class_colors (List[Tuple[int, int, int]]): A list of RGB tuples for each class.
+                e.g., for 3 classes -> [(R, G, B), ...].
         """
-        # 创建一个RGB图像
-        h, w = mask.shape
-        colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
+        num_samples = len(outputs_and_labels)
+        for i, (output, label) in enumerate(outputs_and_labels):
+            # --- Create and Save Colored Mask ---
+            # The mask is expected to have integer values representing class IDs.
+            # We map these IDs to RGB colors using the provided palette.
+            h, w = output.shape
+            colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
 
-        for class_id, color in enumerate(colors):
-            if class_id >= len(colors): break
-            mask_indices = (mask == class_id)
-            colored_mask[mask_indices] = color
+            # Map each pixel's class ID to its color
+            for cls_id, color in enumerate(class_colors):
+                colored_mask[output == cls_id] = color
 
-        return Image.fromarray(colored_mask, mode='RGB')
+            mask_pil = Image.fromarray(colored_mask, mode="RGB")
+            mask_path = os.path.join(self.current_phase_sample_dir, f"sample_{sample_prefix}_{i}_output.png")
+            mask_pil.save(mask_path)
+
+            # --- Create and Save Colored Mask ---
+            # The mask is expected to have integer values representing class IDs.
+            # We map these IDs to RGB colors using the provided palette.
+            h, w = label.shape
+            colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
+
+            # Map each pixel's class ID to its color
+            for cls_id, color in enumerate(class_colors):
+                colored_mask[label == cls_id] = color
+
+            mask_pil = Image.fromarray(colored_mask, mode="RGB")
+            mask_path = os.path.join(self.current_phase_sample_dir, f"sample_{sample_prefix}_{i}_answer.png")
+            mask_pil.save(mask_path)
+
+    def finalize_phase_and_plot(self):
+        """
+        Finalizes the current phase by saving its data and generating plots.
+        Then, initializes a new phase.
+        """
+        if not self.phase_data[self.current_phase]['epochs_data']:
+            print(f"No epoch data found for phase {self.current_phase}. Skipping plot generation.")
+            self._init_new_phase()
+            return
+
+        epochs_data = self.phase_data[self.current_phase]['epochs_data']
+        epochs_list = [d['epoch'] for d in epochs_data]
+        train_losses = [d['train_loss'] for d in epochs_data]
+        val_losses = [d['val_loss'] for d in epochs_data]
+        train_mious = [d['train_miou'] for d in epochs_data]
+        val_mious = [d['val_miou'] for d in epochs_data]
+        lrs = [d['learning_rate'] for d in epochs_data]
+
+        # --- Plot Phase-Specific Curves ---
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle(f'Phase {self.current_phase} Training Summary')
+
+        # Loss
+        axes[0, 0].plot(epochs_list, train_losses, label='Train Loss', marker='o')
+        axes[0, 0].plot(epochs_list, val_losses, label='Validation Loss', marker='s')
+        axes[0, 0].set_title('Loss over Epochs')
+        axes[0, 0].set_xlabel('Epoch')
+        axes[0, 0].set_ylabel('Loss')
+        axes[0, 0].legend()
+        axes[0, 0].grid(True)
+
+        # mIoU
+        axes[0, 1].plot(epochs_list, train_mious, label='Train mIoU', marker='o')
+        axes[0, 1].plot(epochs_list, val_mious, label='Validation mIoU', marker='s')
+        axes[0, 1].set_title('mIoU over Epochs')
+        axes[0, 1].set_xlabel('Epoch')
+        axes[0, 1].set_ylabel('mIoU')
+        axes[0, 1].legend()
+        axes[0, 1].grid(True)
+
+        # Learning Rate
+        axes[1, 0].plot(epochs_list, lrs, label='Learning Rate', color='red')
+        axes[1, 0].set_title('Learning Rate over Epochs')
+        axes[1, 0].set_xlabel('Epoch')
+        axes[1, 0].set_ylabel('Learning Rate')
+        axes[1, 0].legend()
+        axes[1, 0].grid(True)
+
+        # Time (example using train time)
+        train_times = [d['train_time'] for d in epochs_data]
+        val_times = [d['val_time'] for d in epochs_data]
+        axes[1, 1].plot(epochs_list, train_times, label='Train Time (s)', marker='^')
+        axes[1, 1].plot(epochs_list, val_times, label='Val Time (s)', marker='v')
+        axes[1, 1].set_title('Time per Epoch')
+        axes[1, 1].set_xlabel('Epoch')
+        axes[1, 1].set_ylabel('Time (seconds)')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True)
+
+        plt.tight_layout()
+        plot_path = os.path.join(self.log_root_dir, f"phase_{self.current_phase}_summary_plots.png")
+        plt.savefig(plot_path)
+        plt.close(fig)  # Close the figure to free memory
+
+        print(f"Phase {self.current_phase} finalized. Plots saved to {plot_path}.")
+
+        # Initialize the next phase
+        self._init_new_phase()
+
+    def finalize_run_and_create_final_plots(self):
+        """
+        Finalizes the entire run by generating comprehensive plots
+        from all collected phases' data.
+        """
+        all_epochs, all_train_l, all_val_l, all_train_m, all_val_m = [], [], [], [], []
+        current_epoch_offset = 0
+
+        for p_id in sorted(self.phase_data.keys()):
+            phase_epochs_data = self.phase_data[p_id]['epochs_data']
+            if not phase_epochs_data: continue
+
+            # Offset epochs to create a continuous x-axis across phases
+            p_epochs = [d['epoch'] + current_epoch_offset for d in phase_epochs_data]
+            current_epoch_offset = p_epochs[-1] + 1
+
+            all_epochs.extend(p_epochs)
+            all_train_l.extend([d['train_loss'] for d in phase_epochs_data])
+            all_val_l.extend([d['val_loss'] for d in phase_epochs_data])
+            all_train_m.extend([d['train_miou'] for d in phase_epochs_data])
+            all_val_m.extend([d['val_miou'] for d in phase_epochs_data])
+
+        if not all_epochs:
+            print("No data from any phase to generate final plots.")
+            return
+
+        # --- Plot Overall Run Curves ---
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Overall Loss
+        axes[0].plot(all_epochs, all_train_l, label='Train Loss', alpha=0.7, marker='.')
+        axes[0].plot(all_epochs, all_val_l, label='Validation Loss', alpha=0.7, marker='.')
+        axes[0].set_title('Overall Training & Validation Loss')
+        axes[0].set_xlabel('Epoch')
+        axes[0].set_ylabel('Loss')
+        axes[0].legend()
+        axes[0].grid(True)
+
+        # Overall mIoU
+        axes[1].plot(all_epochs, all_train_m, label='Train mIoU', alpha=0.7, marker='.')
+        axes[1].plot(all_epochs, all_val_m, label='Validation mIoU', alpha=0.7, marker='.')
+        axes[1].set_title('Overall Training & Validation mIoU')
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('mIoU')
+        axes[1].legend()
+        axes[1].grid(True)
+
+        plt.tight_layout()
+        plot_path = os.path.join(self.log_root_dir, f"final_combined_plots.png")
+        plt.savefig(plot_path)
+        plt.close(fig)
+
+        print(f"All phases complete. Final combined plots saved to {plot_path}.")
+
+    def save_model_checkpoint(self, model: torch.nn.Module, phase_id: int = None, custom_suffix: str = ""):
+        """
+        保存模型的当前状态（权重）。
+
+        Args:
+            model (torch.nn.Module): 要保存的 PyTorch 模型。
+            phase_id (int, optional): 指定要保存到哪个阶段的目录。如果为 None，则默认保存到当前阶段。
+            custom_suffix (str, optional): 文件名的自定义后缀，例如 '_best' 或 '_epoch10'。
+
+        Raises:
+            RuntimeError: 如果指定的 phase_id 尚未初始化且没有数据。
+        """
+        # 如果未指定 phase_id，默认使用当前 phase
+        target_phase = phase_id if phase_id is not None else self.current_phase
+
+        # 检查目标阶段是否有数据（确保该阶段已经通过 log_initialization 初始化过）
+        if target_phase not in self.phase_data or not self.phase_data[target_phase]['epochs_data']:
+            raise ValueError(f"无法保存模型：阶段 {target_phase} 不存在或未初始化。请先调用 log_initialization。")
+
+        # 构建保存路径：log_root_dir/phase_X_checkpoints/...
+        phase_checkpoint_dir = os.path.join(self.log_root_dir, f"phase_{target_phase}_checkpoints")
+        os.makedirs(phase_checkpoint_dir, exist_ok=True)  # 确保目录存在
+
+        # 生成文件名，例如：model_phase_0_best.pth
+        timestamp = datetime.now().strftime("%H%M%S")
+        filename = f"model_phase_{target_phase}{custom_suffix}_{timestamp}.pth"
+        save_path = os.path.join(phase_checkpoint_dir, filename)
+
+        # 保存模型状态字典
+        # 注意：这里保存的是 state_dict。如果你需要保存整个模型结构，可以使用 torch.save(model, save_path)
+        torch.save(model.state_dict(), save_path)
+
+        print(f"[Model Save] 模型已保存至: {save_path}")
+        return save_path

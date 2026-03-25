@@ -2,6 +2,7 @@ import os
 import kagglehub  # 补充导入：模型下载需使用 kagglehub.model_download
 import huggingface_hub
 from pj_root import PROJECT_ROOT
+
 RES_DIR = os.path.join(PROJECT_ROOT, 'resources')
 SRC_DIR = os.path.join(PROJECT_ROOT, 'src')
 

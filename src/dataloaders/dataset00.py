@@ -61,6 +61,7 @@ class MyDataset(Dataset):
 
         if self.transform:
             img = self.transform(img)
+            lbl = self.transform(lbl)
 
         return img, lbl, self.files[idx]
 

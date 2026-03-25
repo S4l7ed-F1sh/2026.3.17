@@ -1,2 +1,7 @@
-resources/
-notebooks/
+
+*.zip
+*.png
+*.pth
+
+resources/dataset
+resources/model
